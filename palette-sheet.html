@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8"><title>Colour contact sheet</title>
+    <style>html,body{margin:0;background:#1d231f}canvas{display:block}</style>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from '/node_modules/three/build/three.module.js';
+      import { generateBuilding } from '/src/generator/building.ts';
+      import { DEFAULT_PARAMS } from '/src/generator/types.ts';
+      import { skyEquirect } from '/src/generator/textures.ts';
+
+      const q = Object.fromEntries(new URLSearchParams(location.search));
+      const style = q.style ?? 'modern';
+      const start = Number(q.start ?? 100), count = Number(q.count ?? 12), cols = Number(q.cols ?? 4);
+      const cw = 400, ch = 300, rows = Math.ceil(count / cols);
+      const extra = {};
+      for (const [k, v] of Object.entries(q)) {
+        if (['style', 'start', 'count', 'cols'].includes(k)) continue;
+        extra[k] = v === 'true' ? true : v === 'false' ? false : isNaN(+v) ? v : +v;
+      }
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setSize(cw, ch);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMappingExposure = 0.96;
+      renderer.shadowMap.enabled = true;
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const env = pmrem.fromEquirectangular(skyEquirect('day'));
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color('#e6e7e0');
+      scene.environment = env.texture;
+      scene.environmentIntensity = 0.52;
+      const sun = new THREE.DirectionalLight('#fff4e2', 3.3);
+      sun.position.set(-28, 52, 36); sun.castShadow = true;
+      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.camera.left = -40; sun.shadow.camera.right = 40;
+      sun.shadow.camera.top = 45; sun.shadow.camera.bottom = -35; sun.shadow.camera.far = 220;
+      scene.add(sun, sun.target, new THREE.HemisphereLight('#e8edef', '#b5b0a4', 1.15));
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: '#c6c9bf', roughness: 1 }));
+      ground.rotation.x = -Math.PI / 2; ground.position.y = -0.3; ground.receiveShadow = true;
+      scene.add(ground);
+
+      const sheet = document.createElement('canvas');
+      sheet.width = cw * cols; sheet.height = ch * rows;
+      document.body.appendChild(sheet);
+      const ctx = sheet.getContext('2d');
+      const camera = new THREE.PerspectiveCamera(38, cw / ch, 0.1, 500);
+      const labels = [];
+
+      for (let i = 0; i < count; i++) {
+        const seed = start + i;
+        const group = generateBuilding({
+          ...DEFAULT_PARAMS, seed, style, floors: 7, width: 5, depth: 4, massing: q.massing ?? 'auto',
+          parking: false, compoundWall: false, gate: false, streetProps: false, pottedPlants: false,
+          hangingClothes: false, signage: false, ...extra,
+        });
+        scene.add(group);
+        const H = 7 * DEFAULT_PARAMS.floorHeight;
+        sun.target.position.set(0, H * 0.35, 0);
+        camera.position.set(H * 1.05, H * 0.62, H * 1.55);
+        camera.lookAt(0, H * 0.42, 0);
+        renderer.shadowMap.needsUpdate = true;
+        renderer.render(scene, camera);
+        ctx.drawImage(renderer.domElement, (i % cols) * cw, Math.floor(i / cols) * ch);
+        const c = group.userData.colors;
+        labels.push({ seed, name: c.name, scheme: c.scheme, wall: c.swatches.wall, deep: c.swatches.wallDeep });
+        ctx.fillStyle = '#000a'; ctx.fillRect((i % cols) * cw, Math.floor(i / cols) * ch + ch - 22, cw, 22);
+        ctx.fillStyle = '#fff'; ctx.font = '12px sans-serif';
+        ctx.fillText(`#${seed}  ${c.name} · ${c.scheme}`, (i % cols) * cw + 8, Math.floor(i / cols) * ch + ch - 7);
+        scene.remove(group);
+        group.traverse(o => o.geometry?.dispose());
+      }
+      window.__labels = labels;
+      window.__ready = true;
+    </script>
+  </body>
+</html>

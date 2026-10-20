@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8"><title>Ramp Inspection Fixture</title><style>html,body{margin:0;height:100%;background:#cfd3cb}canvas{display:block}</style></head>
+  <body>
+    <script type="module">
+      import * as THREE from '/node_modules/three/build/three.module.js';
+      import { generateBuilding } from '/src/generator/building.ts';
+      import { DEFAULT_PARAMS } from '/src/generator/types.ts';
+
+      const params = Object.fromEntries(new URLSearchParams(location.search));
+      const build = { ...DEFAULT_PARAMS };
+      for (const [k, v] of Object.entries(params)) {
+        if (k === 'cam') continue;
+        build[k] = v === 'true' ? true : v === 'false' ? false : isNaN(+v) ? v : +v;
+      }
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(1280, 800);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.shadowMap.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color('#dfe3dd');
+      const sun = new THREE.DirectionalLight('#fff3d9', 3.1);
+      sun.position.set(-28, 52, 36); sun.castShadow = true;
+      scene.add(sun, new THREE.HemisphereLight('#e8edef', '#b5b0a4', 1.1));
+
+      const group = generateBuilding(build);
+      scene.add(group);
+      const site = group.userData.site;
+      for (const a of (group.userData.lightAnchors ?? []).filter(x => x.kind === 'garage').slice(0, 4)) {
+        const l = new THREE.PointLight('#d2e4ff', 11, 16, 2); l.position.set(...a.position); scene.add(l);
+      }
+
+      const camera = new THREE.PerspectiveCamera(42, 1280 / 800, 0.1, 500);
+      const g = site.garage;
+      const views = {
+        trough: g && { eye: [g.rampTop[0] + 7, 7, g.rampTop[2] + 6], at: [g.rampCenter[0], g.rampCenter[1] - 0.6, g.rampCenter[2]] },
+        portal: g && { eye: [g.portal[0] + 3.2, g.portal[1] + 1.7, g.portal[2] + 5.2], at: [g.portal[0] - 2.5, g.portal[1] + 1.0, g.portal[2] - 0.5] },
+        head:   g && { eye: [g.rampTop[0] + 9, 5.5, g.rampTop[2] + 10], at: [g.rampTop[0], 1.0, g.rampTop[2] + 1] },
+        lot:    { eye: [14, 9, -26], at: [0, 0.6, -build.depth * build.bay / 2 - 3.4] },
+      };
+      const v = views[params.cam ?? 'trough'] ?? views.trough;
+      camera.position.set(...v.eye);
+      camera.lookAt(...v.at);
+      renderer.render(scene, camera);
+      window.__ready = true;
+      window.__site = site;
+    </script>
+  </body>
+</html>
